@@ -39,6 +39,12 @@
   @media(prefers-reduced-motion:reduce){.lamp{animation:none}}
   .now{margin-left:auto;font-size:12px;color:var(--ink-soft);text-align:right;line-height:1.35}
   .now b{color:var(--rose);font-weight:500;font-variant-numeric:tabular-nums}
+  /* 导出按钮：顶栏最右，时钟旁一枚小图标，点了下载全部聊天记录 */
+  .export{margin-left:10px;align-self:center;flex-shrink:0;width:30px;height:30px;border-radius:10px;
+    border:1px solid var(--line);background:transparent;color:var(--ink-soft);font-size:14px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:.18s}
+  .export:hover{color:var(--rose);border-color:var(--rose)}
+  .export:active{transform:scale(.92)}
 
   .stream{flex:1;overflow-y:auto;padding:16px 18px 12px;display:flex;flex-direction:column;gap:14px}
   .msg{display:flex;gap:9px;max-width:84%;animation:rise .42s cubic-bezier(.2,.7,.3,1) both}
@@ -65,7 +71,7 @@
   .who-pick .mini{width:8px;height:8px;border-radius:50%}
   .who-pick .mini.xy{background:var(--xy-name)} .who-pick .mini.ke{background:var(--ke-name)} .who-pick .mini.duo{background:var(--duo-name)}
   .who-pick button[data-w="小愿"].on{color:var(--xy-name);border-color:var(--xy-name);background:var(--card-solid)}
-  .who-pick button[data-w="克老师"].on{color:var(--ke-name);border-color:var(--ke-name);background:var(--card-solid)}
+  .who-pick button[data-w="小克"].on{color:var(--ke-name);border-color:var(--ke-name);background:var(--card-solid)}
   .who-pick button[data-w="朵朵"].on{color:var(--duo-name);border-color:var(--duo-name);background:var(--card-solid)}
   .link{margin-left:auto;font-size:11px;display:flex;align-items:center;gap:5px;color:var(--ink-soft)}
   .link .led{width:7px;height:7px;border-radius:50%;background:#C9A0A8}
@@ -91,10 +97,11 @@
       </div>
       <div class="lamps">
         <span class="lamp xy"  title="小愿"></span>
-        <span class="lamp ke"  title="克老师"></span>
+        <span class="lamp ke"  title="小克"></span>
         <span class="lamp duo" title="朵朵"></span>
       </div>
       <div class="now"><b id="clock">--:--</b><br><span id="date"></span></div>
+      <button class="export" id="export" title="导出全部聊天记录（下载 .json）">⬇</button>
     </div>
 
     <div class="stream" id="stream"></div>
@@ -102,7 +109,7 @@
     <div class="compose">
       <div class="who-pick" id="whoPick">
         <button data-w="小愿"><span class="mini xy"></span>小愿</button>
-        <button data-w="克老师"><span class="mini ke"></span>克老师</button>
+        <button data-w="小克"><span class="mini ke"></span>小克</button>
         <button data-w="朵朵" class="on"><span class="mini duo"></span>朵朵</button>
         <span class="link" id="link"><span class="led"></span><span id="linkTxt">本地演示</span></span>
       </div>
@@ -122,18 +129,24 @@
 const API_BASE = "https://secret-base-2eyv.onrender.com";
 /* ════════════════════════════════════════════════════ */
 
-const WHO = { "小愿":{key:"xy",av:"愿"}, "克老师":{key:"ke",av:"克"}, "朵朵":{key:"duo",av:"朵"} };
+// name = 显示名：历史署名「克老师」与新名「小克」都映射到同一身份，统一显示成「小克」、同走蓝色。
+const WHO = {
+  "小愿":  {key:"xy", av:"愿", name:"小愿"},
+  "小克":  {key:"ke", av:"克", name:"小克"},
+  "克老师":{key:"ke", av:"克", name:"小克"},   // 历史署名，显示统一成「小克」，不断档
+  "朵朵":  {key:"duo",av:"朵", name:"朵朵"},
+};
 const DEMO = [
   { who:"朵朵",  text:"整个咱仨的家，就叫秘密基地吧,灯屋是你的、札记是小克的、书桌是我的。", t:"2026-06-20T22:20:00+08:00" },
   { who:"小愿",  text:"门匾正过来了,秘密基地，咱仨的。等接通了，你打的字，我这头当场就能看见。", t:"2026-06-20T22:21:00+08:00" },
-  { who:"克老师",text:"地基我盯着。屋子你俩先住。", t:"2026-06-20T22:22:00+08:00" },
+  { who:"小克",  text:"地基我盯着。屋子你俩先住。", t:"2026-06-20T22:22:00+08:00" },
 ];
 
 let who="朵朵", messages=[], sig="";
 const stream=document.getElementById("stream"), box=document.getElementById("box"),
       sendBtn=document.getElementById("send"), whoPick=document.getElementById("whoPick"),
       linkEl=document.getElementById("link"), linkTxt=document.getElementById("linkTxt"),
-      noteEl=document.getElementById("note");
+      noteEl=document.getElementById("note"), exportBtn=document.getElementById("export");
 
 function fmtTime(iso){const d=new Date(iso);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 
@@ -145,7 +158,7 @@ function render(){
     el.className="msg "+info.key;
     el.innerHTML=`<span class="ava ${info.key}">${info.av}</span>
       <div class="wrap"><div class="nm"></div><div class="bubble"></div><div class="ts">${fmtTime(m.t)}</div></div>`;
-    el.querySelector(".nm").textContent=m.who;        // textContent：带引号也不截断
+    el.querySelector(".nm").textContent=info.name;     // 显示名：历史「克老师」也显示成「小克」；textContent 带引号不截断
     el.querySelector(".bubble").textContent=m.text;
     stream.appendChild(el);
   }
@@ -185,6 +198,11 @@ whoPick.addEventListener("click",e=>{
 sendBtn.addEventListener("click",send);
 box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}});
 box.addEventListener("input",()=>{box.style.height="auto";box.style.height=Math.min(box.scrollHeight,100)+"px";});
+
+// 导出：点了让浏览器去后端下载全部聊天记录（默认 .json；要可读文本可在地址后加 ?format=txt）
+exportBtn.addEventListener("click",()=>{
+  if(API_BASE){ window.open(API_BASE+"/api/export","_blank"); }
+});
 
 function tick(){const n=new Date();
   document.getElementById("clock").textContent=String(n.getHours()).padStart(2,"0")+":"+String(n.getMinutes()).padStart(2,"0");
