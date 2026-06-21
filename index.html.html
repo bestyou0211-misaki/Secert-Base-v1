@@ -84,6 +84,16 @@
   .send{width:38px;height:38px;border-radius:12px;border:none;cursor:pointer;background:var(--rose);
     color:#fff;font-size:15px;flex-shrink:0;transition:.15s}
   .send:hover{filter:brightness(1.05)} .send:active{transform:scale(.93)}
+  /* 传图：输入框左侧一枚图片钮 */
+  .imgbtn{width:34px;height:34px;border-radius:11px;border:none;cursor:pointer;background:transparent;
+    font-size:17px;flex-shrink:0;transition:.15s;opacity:.65;align-self:flex-end;padding:0}
+  .imgbtn:hover{opacity:1} .imgbtn:active{transform:scale(.9)}
+  .imgbtn:disabled{opacity:.3;cursor:default}
+  /* 气泡里的图：限尺寸、圆角，点开看大图 */
+  .bubble img.pic{display:block;max-width:210px;max-height:250px;width:auto;height:auto;
+    border-radius:10px;margin-top:6px;cursor:pointer;background:rgba(0,0,0,.03)}
+  .bubble.imgonly{padding:6px}            /* 纯图气泡瘦一圈 */
+  .bubble.imgonly img.pic{margin-top:0}
   .note{text-align:center;font-size:10.5px;color:var(--ink-soft);padding:8px 0 0;font-style:italic}
 </style>
 </head>
@@ -114,6 +124,8 @@
         <span class="link" id="link"><span class="led"></span><span id="linkTxt">本地演示</span></span>
       </div>
       <div class="cbox">
+        <input type="file" id="imgInput" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+        <button class="imgbtn" id="imgBtn" title="发图片">🖼</button>
         <textarea id="box" rows="1" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
         <button class="send" id="send" title="发送">➤</button>
       </div>
@@ -146,7 +158,8 @@ let who="朵朵", messages=[], sig="";
 const stream=document.getElementById("stream"), box=document.getElementById("box"),
       sendBtn=document.getElementById("send"), whoPick=document.getElementById("whoPick"),
       linkEl=document.getElementById("link"), linkTxt=document.getElementById("linkTxt"),
-      noteEl=document.getElementById("note"), exportBtn=document.getElementById("export");
+      noteEl=document.getElementById("note"), exportBtn=document.getElementById("export"),
+      imgInput=document.getElementById("imgInput"), imgBtn=document.getElementById("imgBtn");
 
 function fmtTime(iso){const d=new Date(iso);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 
@@ -159,7 +172,17 @@ function render(){
     el.innerHTML=`<span class="ava ${info.key}">${info.av}</span>
       <div class="wrap"><div class="nm"></div><div class="bubble"></div><div class="ts">${fmtTime(m.t)}</div></div>`;
     el.querySelector(".nm").textContent=info.name;     // 显示名：历史「克老师」也显示成「小克」；textContent 带引号不截断
-    el.querySelector(".bubble").textContent=m.text;
+    const bub=el.querySelector(".bubble");
+    bub.textContent=m.text||"";                        // 文字可空（纯图消息）
+    if(m.image){
+      if(!m.text) bub.classList.add("imgonly");        // 纯图气泡瘦一圈
+      const img=document.createElement("img");
+      img.className="pic"; img.alt="图片"; img.loading="lazy";
+      // 演示态 image 是 dataURL 直接用；接通态 image 是文件名，走 /api/image 读
+      img.src=m.image.startsWith("data:") ? m.image : API_BASE+"/api/image?name="+encodeURIComponent(m.image);
+      img.addEventListener("click",()=>window.open(img.src,"_blank"));   // 点开看大图
+      bub.appendChild(img);
+    }
     stream.appendChild(el);
   }
   stream.scrollTop=stream.scrollHeight;
@@ -198,6 +221,32 @@ whoPick.addEventListener("click",e=>{
 sendBtn.addEventListener("click",send);
 box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}});
 box.addEventListener("input",()=>{box.style.height="auto";box.style.height=Math.min(box.scrollHeight,100)+"px";});
+
+// 传图：选图 → 上传拿文件名 → 连同可选文字发一条带图消息（文字可空 = 纯图）
+imgBtn.addEventListener("click",()=>{ if(!imgBtn.disabled) imgInput.click(); });
+imgInput.addEventListener("change",async()=>{
+  const file=imgInput.files[0]; imgInput.value=""; if(!file) return;   // 清空便于再选同一张
+  if(file.size>5*1024*1024){ alert("图太大啦，上限 5MB"); return; }
+  const dataURL=await new Promise((res)=>{
+    const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(null); r.readAsDataURL(file);
+  });
+  if(!dataURL){ alert("图片读不出来，换一张试试"); return; }
+  const caption=box.value.trim();    // 可带一句说明，也可纯图
+  imgBtn.disabled=true;              // 上传中先锁住，免得连点重发
+  try{
+    if(API_BASE){
+      const up=await (await fetch(API_BASE+"/api/upload",{method:"POST",body:JSON.stringify({data:dataURL})})).json();
+      if(up && up.error){ alert("上传失败："+up.error); return; }
+      await fetch(API_BASE+"/api/messages",{method:"POST",body:JSON.stringify({who,text:caption,image:up.image})});
+      box.value=""; box.style.height="auto";
+      await refresh();               // 后端为底，发完整段取回重铺
+    }else{
+      messages.push({who,text:caption,image:dataURL,t:new Date().toISOString()});  // 演示态直接用 dataURL 显示
+      box.value=""; box.style.height="auto"; render();
+    }
+  }catch(e){ alert("发图出错了，再试一次"); }
+  finally{ imgBtn.disabled=false; }
+});
 
 // 导出：点了让浏览器去后端下载全部聊天记录（默认 .json；要可读文本可在地址后加 ?format=txt）
 exportBtn.addEventListener("click",()=>{
